@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Petty Cash Tracker - Itemized</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
+    <style>
+        :root { --primary: #007bff; --danger: #dc3545; --success: #28a745; --gray: #6c757d; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; display: flex; justify-content: center; padding: 20px; }
+        .container { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); width: 100%; max-width: 700px; }
+        #login-section { text-align: center; }
+        input, select { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; }
+        button { padding: 10px 15px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        .btn-primary { background: var(--primary); color: white; width: 100%; margin-top: 10px; }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-success { background: var(--success); color: white; }
+        .hidden { display: none; }
+        
+        /* Item Calculator Section */
+        .calculator-box { background: #f8f9fa; border: 1px dashed #bbb; padding: 15px; border-radius: 8px; margin: 15px 0; }
+        .item-row { display: flex; gap: 10px; margin-bottom: 5px; }
+        .total-display { font-size: 1.2rem; color: #333; margin: 10px 0; text-align: right; border-top: 1px solid #eee; padding-top: 10px; }
+        
+        .stats { display: flex; justify-content: space-between; margin-bottom: 20px; font-weight: bold; font-size: 1.1rem; background: #e9ecef; padding: 15px; border-radius: 8px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #eee; padding: 12px; text-align: left; }
+        th { background: #f4f4f4; }
+        .type-expense { color: var(--danger); }
+        .type-credit { color: var(--success); }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div id="login-section">
+        <h2>Office Expense Login</h2>
+        <input type="text" id="username" placeholder="Username">
+        <input type="password" id="password" placeholder="Password">
+        <button class="btn-primary" onclick="login()">Login</button>
+    </div>
+
+    <div id="app-section" class="hidden">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h2 style="margin:0;">📊 Petty Cash Log</h2>
+            <button class="btn-danger" onclick="resetApp()">Refresh/Clear</button>
+        </div>
+
+        <div class="stats">
+            <span>Balance: ₹<span id="bal-val">0</span></span>
+            <span>Total Spent: ₹<span id="spent-val">0</span></span>
+        </div>
+
+        <label>Date</label>
+        <input type="date" id="entry-date">
+
+        <div class="calculator-box" id="calc-container">
+            <strong>Add Items (Milk, Snacks, etc.)</strong>
+            <div id="items-list">
+                </div>
+            <button class="btn-success" style="width: auto; margin-top: 10px;" onclick="addItemRow()">+ Add Item</button>
+            <div class="total-display">
+                Total Amount: <strong>₹<span id="temp-total">0</span></strong>
+            </div>
+        </div>
+
+        <label>Transaction Type</label>
+        <select id="entry-type" onchange="toggleCalc()">
+            <option value="expense">Expense (Spending)</option>
+            <option value="credit">Credit (Received from Boss)</option>
+        </select>
+
+        <button class="btn-primary" id="save-btn" onclick="saveEntry()">Save Transaction</button>
+        <button onclick="exportPDF()" style="width:100%; margin-top:10px; background:var(--gray); color:white;">Export to PDF</button>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Items</th>
+                    <th>Type</th>
+                    <th>Amt</th>
+                    <th>Bal</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="table-body"></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    let entries = JSON.parse(localStorage.getItem('petty_cash_data')) || [];
+    let currentItems = [];
+
+    function login() {
+        if(document.getElementById('username').value === "M.Hariharan" && document.getElementById('password').value === "100062") {
+            document.getElementById('login-section').classList.add('hidden');
+            document.getElementById('app-section').classList.remove('hidden');
+            document.getElementById('entry-date').valueAsDate = new Date();
+            addItemRow();
+            renderData();
+        } else { alert("Wrong Username/Password"); }
+    }
+
+    function toggleCalc() {
+        const type = document.getElementById('entry-type').value;
+        const calcBox = document.getElementById('calc-container');
+        // If credit, we just need one amount, but for simplicity, we keep the calc or hide it.
+        // Let's keep it visible for both to allow adding "Cash from Boss" as an item.
+    }
+
+    function addItemRow() {
+        const list = document.getElementById('items-list');
+        const div = document.createElement('div');
+        div.className = 'item-row';
+        div.innerHTML = `
+            <input type="text" placeholder="Item name" class="item-name" style="flex: 2;">
+            <input type="number" placeholder="Price" class="item-price" style="flex: 1;" oninput="calcTotal()">
+            <button class="btn-danger" onclick="this.parentElement.remove(); calcTotal();" style="flex: 0.2;">X</button>
+        `;
+        list.appendChild(div);
+    }
+
+    function calcTotal() {
+        let total = 0;
+        const prices = document.querySelectorAll('.item-price');
+        prices.forEach(p => { if(p.value) total += parseFloat(p.value); });
+        document.getElementById('temp-total').innerText = total;
+        return total;
+    }
+
+    function saveEntry() {
+        const date = document.getElementById('entry-date').value;
+        const type = document.getElementById('entry-type').value;
+        const totalAmt = calcTotal();
+
+        const itemNames = Array.from(document.querySelectorAll('.item-name')).map(i => i.value).filter(v => v !== "").join(", ");
+
+        if(!date || totalAmt <= 0) { alert("Please enter items and prices"); return; }
+
+        entries.push({ date, desc: itemNames, type, amt: totalAmt });
+        localStorage.setItem('petty_cash_data', JSON.stringify(entries));
+        
+        // Clear items
+        document.getElementById('items-list').innerHTML = "";
+        addItemRow();
+        document.getElementById('temp-total').innerText = "0";
+        renderData();
+    }
+
+    function renderData() {
+        const tbody = document.getElementById('table-body');
+        tbody.innerHTML = "";
+        let bal = 0; let spent = 0;
+        entries.sort((a,b) => new Date(a.date) - new Date(b.date));
+
+        entries.forEach((item, index) => {
+            if(item.type === 'credit') bal += item.amt;
+            else { bal -= item.amt; spent += item.amt; }
+
+            tbody.innerHTML += `
+                <tr>
+                    <td>${item.date}</td>
+                    <td>${item.desc}</td>
+                    <td class="type-${item.type}">${item.type}</td>
+                    <td>₹${item.amt}</td>
+                    <td>₹${bal}</td>
+                    <td>
+                        <button class="btn-danger" onclick="deleteEntry(${index})" style="padding: 2px 8px;">Delete</button>
+                    </td>
+                </tr>
+            `;
+        });
+        document.getElementById('bal-val').innerText = bal;
+        document.getElementById('spent-val').innerText = spent;
+    }
+
+    function deleteEntry(index) {
+        entries.splice(index, 1);
+        localStorage.setItem('petty_cash_data', JSON.stringify(entries));
+        renderData();
+    }
+
+    function resetApp() {
+        if(confirm("Refresh and delete all data?")) {
+            localStorage.removeItem('petty_cash_data');
+            entries = [];
+            renderData();
+        }
+    }
+
+    function exportPDF() {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        doc.text("Petty Cash Report - M.Hariharan", 15, 15);
+        const rows = entries.map(e => [e.date, e.desc, e.type, e.amt]);
+        doc.autoTable({ head: [['Date', 'Description', 'Type', 'Amount']], body: rows, startY: 20 });
+        doc.save("Report.pdf");
+    }
+</script>
+</body>
+</html>
